@@ -32,28 +32,38 @@ jobs:
           def setup_driver():
               options = Options()
               options.add_argument("--headless=new")
-              options.add_argument("--window-size=1280,720")
+              options.add_argument("--window-size=1920,1080") # 🖥️ Upgraded to 1080p
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
               options.add_argument("--no-sandbox")
               options.add_argument("--disable-dev-shm-usage")
               return webdriver.Chrome(options=options)
 
-          def find_game_frame(driver):
+          def focus_and_find_game(driver):
+              """Scrolls the page so the game is dead-center, then connects to it."""
+              driver.switch_to.default_content() # Make sure we are at the top level
+              
               try:
                   frame = driver.find_element(By.ID, "game-iframe")
+                  # 📸 FORCE THE BROWSER TO SCROLL TO THE GAME
+                  driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
+                  time.sleep(1)
+                  
                   driver.switch_to.frame(frame)
                   nested_iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   if len(nested_iframes) > 0:
                       driver.switch_to.frame(nested_iframes[0])
-                  print("✅ Successfully connected to the Game Canvas!", flush=True)
+                  print("✅ Scrolled to game and connected to Canvas!", flush=True)
                   return True
               except:
+                  # Fallback search
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
+                          driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
+                          time.sleep(1)
                           driver.switch_to.frame(frame)
-                          print(f"✅ Switched to fallback iframe ({i})", flush=True)
+                          print(f"✅ Scrolled to fallback iframe ({i})", flush=True)
                           return True
               return False
 
@@ -99,7 +109,7 @@ jobs:
               print("⏳ Waiting 15 seconds for site to load...", flush=True)
               time.sleep(15)
 
-              if not find_game_frame(driver):
+              if not focus_and_find_game(driver):
                   print("❌ Failed to find game iframe. Exiting.", flush=True)
                   driver.save_screenshot("error_no_iframe.png")
                   driver.quit()
@@ -124,6 +134,8 @@ jobs:
                       if time.time() - start_time > run_duration:
                           if is_test_mode:
                               print("\n📸 Time is up! Taking proof screenshot...", flush=True)
+                              # Switch back to main page context just for the screenshot so it captures everything perfectly
+                              driver.switch_to.default_content() 
                               driver.save_screenshot("proof_gameplay.png")
                           break
 
@@ -139,6 +151,7 @@ jobs:
                       
               except Exception as e:
                   print(f"\n❌ Error: {e}", flush=True)
+                  driver.switch_to.default_content()
                   driver.save_screenshot("error_crash.png")
               finally:
                   driver.quit()

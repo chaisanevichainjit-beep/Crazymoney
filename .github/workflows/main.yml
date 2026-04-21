@@ -26,13 +26,11 @@ jobs:
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from selenium.webdriver.common.keys import Keys
-          from selenium.webdriver.common.action_chains import ActionChains
 
           def setup_driver():
               options = Options()
               options.add_argument("--headless=new")
-              options.add_argument("--window-size=1920,1080") # 🖥️ Upgraded to 1080p
+              options.add_argument("--window-size=1920,1080")
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
               options.add_argument("--no-sandbox")
@@ -41,11 +39,9 @@ jobs:
 
           def focus_and_find_game(driver):
               """Scrolls the page so the game is dead-center, then connects to it."""
-              driver.switch_to.default_content() # Make sure we are at the top level
-              
+              driver.switch_to.default_content()
               try:
                   frame = driver.find_element(By.ID, "game-iframe")
-                  # 📸 FORCE THE BROWSER TO SCROLL TO THE GAME
                   driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
                   time.sleep(1)
                   
@@ -56,7 +52,6 @@ jobs:
                   print("✅ Scrolled to game and connected to Canvas!", flush=True)
                   return True
               except:
-                  # Fallback search
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
@@ -67,33 +62,53 @@ jobs:
                           return True
               return False
 
+          def handle_html_menus(driver):
+              """Uses the exact HTML IDs from the game's source code to navigate menus."""
+              script = """
+              // 1. Check for Survival Mode Button
+              let btnInf = document.getElementById('btn-infinite');
+              if (btnInf && btnInf.offsetParent !== null && !btnInf.closest('.hidden')) {
+                  btnInf.click();
+                  return 'CLICKED_SURVIVAL';
+              }
+              // 2. Check for Next Level Button
+              let btnNext = document.getElementById('next-level-btn');
+              if (btnNext && btnNext.offsetParent !== null && !btnNext.closest('.hidden')) {
+                  btnNext.click();
+                  return 'CLICKED_NEXT';
+              }
+              // 3. Check for Restart Button (If game over)
+              let btnRestart = document.getElementById('restart-btn');
+              if (btnRestart && btnRestart.offsetParent !== null && !btnRestart.closest('.hidden')) {
+                  btnRestart.click();
+                  return 'CLICKED_RESTART';
+              }
+              return 'NO_MENU';
+              """
+              try:
+                  return driver.execute_script(script)
+              except:
+                  return 'ERROR'
+
           def spam_game_inputs(driver):
+              """Simulates pointerdown events inside the canvas bounds as requested by the game code."""
               script = """
               var canvas = document.querySelector('canvas');
               if (canvas && canvas.offsetParent !== null) {
                   var rect = canvas.getBoundingClientRect();
-                  var x = rect.left + (Math.random() * rect.width);
-                  var y = rect.top + (Math.random() * rect.height);
                   
-                  var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
-                  var up = new PointerEvent('pointerup', {clientX: x, clientY: y, bubbles: true});
-                  
-                  canvas.dispatchEvent(down);
-                  canvas.dispatchEvent(up);
+                  // Send 3 random clicks per loop iteration
+                  for(let i=0; i<3; i++) {
+                      var x = rect.left + (Math.random() * rect.width);
+                      var y = rect.top + (Math.random() * rect.height);
+                      
+                      var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
+                      canvas.dispatchEvent(down);
+                  }
               }
               """
               try:
                   driver.execute_script(script)
-                  actions = ActionChains(driver)
-                  directions = [Keys.ARROW_UP, Keys.ARROW_DOWN, Keys.ARROW_LEFT, Keys.ARROW_RIGHT, Keys.SPACE]
-                  actions.send_keys(random.choice(directions)).perform()
-              except:
-                  pass
-
-          def wake_up_crazygames(driver):
-              try:
-                  canvas = driver.find_element(By.TAG_NAME, 'canvas')
-                  ActionChains(driver).move_to_element(canvas).click().perform()
               except:
                   pass
 
@@ -114,10 +129,6 @@ jobs:
                   driver.save_screenshot("error_no_iframe.png")
                   driver.quit()
                   return
-
-              print("🖱️ Clicking canvas to start game...", flush=True)
-              wake_up_crazygames(driver)
-              time.sleep(2)
               
               if is_test_mode:
                   print("\n🧪 PHASE 1: 5-Minute Proof Run Started!", flush=True)
@@ -134,18 +145,26 @@ jobs:
                       if time.time() - start_time > run_duration:
                           if is_test_mode:
                               print("\n📸 Time is up! Taking proof screenshot...", flush=True)
-                              # Switch back to main page context just for the screenshot so it captures everything perfectly
                               driver.switch_to.default_content() 
                               driver.save_screenshot("proof_gameplay.png")
                           break
 
                       loop_count += 1
-                      spam_game_inputs(driver)
                       
+                      # 1. First, check if there are any menus open and click them
+                      menu_status = handle_html_menus(driver)
+                      
+                      if menu_status != 'NO_MENU' and menu_status != 'ERROR':
+                          print(f"🕹️ UI Interacted: {menu_status}", flush=True)
+                          time.sleep(1.5) # Give the game a second to transition after clicking a menu
+                      else:
+                          # 2. If no menus are open, spam the game board!
+                          spam_game_inputs(driver)
+                      
+                      # Print live update every ~30 seconds
                       if loop_count % 150 == 0:
                           mins_running = round((time.time() - start_time) / 60, 1)
                           print(f"🔄 Bot is playing... ({mins_running} minutes elapsed | {loop_count} inputs sent)", flush=True)
-                          wake_up_crazygames(driver)
 
                       time.sleep(0.2)
                       

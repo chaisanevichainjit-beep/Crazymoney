@@ -1,11 +1,12 @@
-name: 🚀 CrazyGames Slide Rush Bot
+name: 🚀 CrazyGames Bot (5-Min Proof + 6-Hour Run)
 
 on:
-  workflow_dispatch: # Manually trigger from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # Forces the max 6 hour runtime
     
     steps:
       - name: 🐍 Set up Python
@@ -14,15 +15,14 @@ jobs:
           python-version: '3.10'
 
       - name: 📦 Install Dependencies
-        run: |
-          pip install selenium
+        run: pip install selenium
 
       - name: 📝 Generate Bot Script
         run: |
           cat << 'EOF' > bot.py
           import time
-          import random
           import sys
+          import random
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
@@ -32,123 +32,130 @@ jobs:
           def setup_driver():
               options = Options()
               options.add_argument("--headless=new")
-              options.add_argument("--window-size=1920,1080")
-              options.add_argument("--no-sandbox")
-              options.add_argument("--disable-dev-shm-usage")
+              options.add_argument("--window-size=1280,720")
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
+              options.add_argument("--no-sandbox")
+              options.add_argument("--disable-dev-shm-usage")
               return webdriver.Chrome(options=options)
 
           def find_game_frame(driver):
-              """Locates the iframe containing the actual game on CrazyGames."""
               try:
-                  # CrazyGames usually wraps the game in an iframe with ID 'game-iframe'
                   frame = driver.find_element(By.ID, "game-iframe")
                   driver.switch_to.frame(frame)
-                  
-                  # Sometimes there is a nested iframe inside the first one
                   nested_iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   if len(nested_iframes) > 0:
                       driver.switch_to.frame(nested_iframes[0])
-                      
                   print("✅ Successfully connected to the Game Canvas!", flush=True)
                   return True
-              except Exception as e:
-                  print("⚠️ Standard frame not found, attempting fallback search...", flush=True)
+              except:
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
-                      # Look for a reasonably sized iframe (ignores tiny ad frames)
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
                           driver.switch_to.frame(frame)
-                          print(f"✅ Switched to large fallback iframe ({i})", flush=True)
+                          print(f"✅ Switched to fallback iframe ({i})", flush=True)
                           return True
               return False
 
-          def click_center(driver):
-              """Clicks the center of the game canvas to clear menus/next level buttons."""
+          def spam_game_inputs(driver):
+              script = """
+              var canvas = document.querySelector('canvas');
+              if (canvas && canvas.offsetParent !== null) {
+                  var rect = canvas.getBoundingClientRect();
+                  var x = rect.left + (Math.random() * rect.width);
+                  var y = rect.top + (Math.random() * rect.height);
+                  
+                  var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
+                  var up = new PointerEvent('pointerup', {clientX: x, clientY: y, bubbles: true});
+                  
+                  canvas.dispatchEvent(down);
+                  canvas.dispatchEvent(up);
+              }
+              """
+              try:
+                  driver.execute_script(script)
+                  actions = ActionChains(driver)
+                  directions = [Keys.ARROW_UP, Keys.ARROW_DOWN, Keys.ARROW_LEFT, Keys.ARROW_RIGHT, Keys.SPACE]
+                  actions.send_keys(random.choice(directions)).perform()
+              except:
+                  pass
+
+          def wake_up_crazygames(driver):
               try:
                   canvas = driver.find_element(By.TAG_NAME, 'canvas')
                   ActionChains(driver).move_to_element(canvas).click().perform()
               except:
-                  # If canvas not found, click center of current frame
-                  try:
-                      body = driver.find_element(By.TAG_NAME, 'body')
-                      ActionChains(driver).move_to_element(body).click().perform()
-                  except:
-                      pass
+                  pass
 
           def main():
-              driver = setup_driver()
-              print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
+              is_test_mode = "--test" in sys.argv
               
-              # Target URL for Slide Rush
+              print("🚀 Launching Google Chrome...", flush=True)
+              driver = setup_driver()
+              
+              print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
               driver.get("https://www.crazygames.com/game/slide-rush?bypassCache=4482f")
               
-              # Give the site generous time to load ads and iframes
+              print("⏳ Waiting 15 seconds for site to load...", flush=True)
               time.sleep(15)
-              driver.save_screenshot("screenshot_01_loaded.png")
-              print("📸 Saved site loaded screenshot.", flush=True)
 
               if not find_game_frame(driver):
                   print("❌ Failed to find game iframe. Exiting.", flush=True)
+                  driver.save_screenshot("error_no_iframe.png")
                   driver.quit()
                   return
 
-              time.sleep(5)
-              
-              # Attempt to click to focus the game and start
-              click_center(driver)
+              print("🖱️ Clicking canvas to start game...", flush=True)
+              wake_up_crazygames(driver)
               time.sleep(2)
-              ActionChains(driver).send_keys(Keys.SPACE).perform()
               
-              driver.save_screenshot("screenshot_02_playing.png")
-              print("📸 Saved active gameplay screenshot.", flush=True)
-
-              print("🤖 Bot Active. Starting auto-slider...", flush=True)
+              if is_test_mode:
+                  print("\n🧪 PHASE 1: 5-Minute Proof Run Started!", flush=True)
+                  run_duration = 300 # 5 minutes
+              else:
+                  print("\n♾️ PHASE 2: 6-Hour Infinite Run Started!", flush=True)
+                  run_duration = 21600 # 6 hours
               
-              actions = ActionChains(driver)
-              directions = [Keys.ARROW_UP, Keys.ARROW_DOWN, Keys.ARROW_LEFT, Keys.ARROW_RIGHT]
-              
+              start_time = time.time()
               loop_count = 0
+              
+              try:
+                  while True:
+                      if time.time() - start_time > run_duration:
+                          if is_test_mode:
+                              print("\n📸 Time is up! Taking proof screenshot...", flush=True)
+                              driver.save_screenshot("proof_gameplay.png")
+                          break
 
-              # Infinite gameplay loop
-              while True:
-                  # Randomly slide in a direction to play the game
-                  move = random.choice(directions)
-                  actions.send_keys(move).perform()
-                  
-                  loop_count += 1
-                  
-                  # Every ~50 moves, try to click the screen to bypass "Next Level" / "Game Over" menus
-                  if loop_count % 50 == 0:
-                      print(f"🔄 Made {loop_count} slides. Clicking center to clear popups...", flush=True)
-                      click_center(driver)
-                      actions.send_keys(Keys.SPACE).perform() # Alternative menu progression
+                      loop_count += 1
+                      spam_game_inputs(driver)
+                      
+                      if loop_count % 150 == 0:
+                          mins_running = round((time.time() - start_time) / 60, 1)
+                          print(f"🔄 Bot is playing... ({mins_running} minutes elapsed | {loop_count} inputs sent)", flush=True)
+                          wake_up_crazygames(driver)
 
-                  # Wait a fraction of a second before sliding again (adjust if game requires faster/slower inputs)
-                  time.sleep(0.3)
+                      time.sleep(0.2)
+                      
+              except Exception as e:
+                  print(f"\n❌ Error: {e}", flush=True)
+                  driver.save_screenshot("error_crash.png")
+              finally:
+                  driver.quit()
 
           if __name__ == "__main__":
               main()
           EOF
 
-      - name: 🤖 Run Bot Background Task
-        run: |
-          # Runs in the background and logs to bot.log
-          nohup python bot.py > bot.log 2>&1 &
+      - name: 🧪 PHASE 1 - Run for 5 Minutes & Take Screenshot
+        run: python bot.py --test
 
-      - name: ⏱️ Wait for Bot Initialization
-        # Allow 45 seconds for the bot to load the site, traverse the iframes, and take pictures
-        run: sleep 45
-
-      - name: 📸 Upload Proof Screenshots & Logs
+      - name: 📸 Upload Screenshot Proof to GitHub
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: bot-proof-artifacts
-          path: |
-            *.png
-            bot.log
+          name: Proof-Screenshot
+          path: "*.png"
 
-      - name: ♾️ Keep Alive
-        # 21600 seconds = 6 hours. The GitHub VM will shut down automatically when the limit is reached.
-        run: sleep 21600
+      - name: ♾️ PHASE 2 - Run for the remaining 6 Hours
+        run: python bot.py --infinite

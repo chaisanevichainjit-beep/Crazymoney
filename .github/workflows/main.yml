@@ -30,80 +30,73 @@ jobs:
           def setup_driver():
               options = Options()
               options.add_argument("--headless=new")
-              options.add_argument("--window-size=1920,1080")
+              options.add_argument("--window-size=1920,1080") # High-res so screenshots look good
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
+              # These two are required for Linux servers:
               options.add_argument("--no-sandbox")
               options.add_argument("--disable-dev-shm-usage")
+              
+              print("🚀 Launching Google Chrome...", flush=True)
               return webdriver.Chrome(options=options)
 
           def focus_and_find_game(driver):
-              """Scrolls the page so the game is dead-center, then connects to it."""
+              """Locates the game frame and scrolls down to it so screenshots work properly."""
               driver.switch_to.default_content()
               try:
                   frame = driver.find_element(By.ID, "game-iframe")
                   driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
                   time.sleep(1)
-                  
                   driver.switch_to.frame(frame)
                   nested_iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   if len(nested_iframes) > 0:
                       driver.switch_to.frame(nested_iframes[0])
-                  print("✅ Scrolled to game and connected to Canvas!", flush=True)
+                  print("✅ Successfully connected to the Game Canvas!", flush=True)
                   return True
-              except:
+              except Exception:
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
                           driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
                           time.sleep(1)
                           driver.switch_to.frame(frame)
-                          print(f"✅ Scrolled to fallback iframe ({i})", flush=True)
+                          print(f"✅ Switched to fallback iframe ({i})", flush=True)
                           return True
               return False
 
-          def handle_html_menus(driver):
-              """Uses the exact HTML IDs from the game's source code to navigate menus."""
-              script = """
-              // 1. Check for Survival Mode Button
-              let btnInf = document.getElementById('btn-infinite');
-              if (btnInf && btnInf.offsetParent !== null && !btnInf.closest('.hidden')) {
-                  btnInf.click();
-                  return 'CLICKED_SURVIVAL';
-              }
-              // 2. Check for Next Level Button
-              let btnNext = document.getElementById('next-level-btn');
-              if (btnNext && btnNext.offsetParent !== null && !btnNext.closest('.hidden')) {
-                  btnNext.click();
-                  return 'CLICKED_NEXT';
-              }
-              // 3. Check for Restart Button (If game over)
-              let btnRestart = document.getElementById('restart-btn');
-              if (btnRestart && btnRestart.offsetParent !== null && !btnRestart.closest('.hidden')) {
-                  btnRestart.click();
-                  return 'CLICKED_RESTART';
-              }
-              return 'NO_MENU';
+          # === FROM YOUR LOCAL CODE ===
+          def is_button_visible(driver, button_id):
+              script = f"""
+              var btn = document.getElementById('{button_id}');
+              return (btn && btn.offsetParent !== null && !btn.closest('.hidden'));
               """
               try:
                   return driver.execute_script(script)
               except:
-                  return 'ERROR'
+                  return False
 
-          def spam_game_inputs(driver):
-              """Simulates pointerdown events inside the canvas bounds as requested by the game code."""
+          def click_html_button(driver, button_id):
+              script = f"document.getElementById('{button_id}').click();"
+              try:
+                  driver.execute_script(script)
+              except:
+                  pass
+
+          def spam_virtual_clicks(driver):
               script = """
               var canvas = document.querySelector('canvas');
               if (canvas && canvas.offsetParent !== null) {
                   var rect = canvas.getBoundingClientRect();
-                  
-                  // Send 3 random clicks per loop iteration
-                  for(let i=0; i<3; i++) {
-                      var x = rect.left + (Math.random() * rect.width);
-                      var y = rect.top + (Math.random() * rect.height);
-                      
-                      var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
-                      canvas.dispatchEvent(down);
+                  for (let i = 0; i < 10; i++) {
+                      var x = Math.random() * rect.width;
+                      var y = Math.random() * rect.height;
+                      var ev = new PointerEvent('pointerdown', {
+                          clientX: rect.left + x,
+                          clientY: rect.top + y,
+                          bubbles: true,
+                          cancelable: true
+                      });
+                      canvas.dispatchEvent(ev);
                   }
               }
               """
@@ -112,10 +105,16 @@ jobs:
               except:
                   pass
 
+          def wake_up_crazygames(driver):
+              try:
+                  body = driver.find_element(By.TAG_NAME, 'body')
+                  webdriver.ActionChains(driver).move_to_element(body).click().perform()
+              except:
+                  pass
+          # ==============================
+
           def main():
               is_test_mode = "--test" in sys.argv
-              
-              print("🚀 Launching Google Chrome...", flush=True)
               driver = setup_driver()
               
               print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
@@ -126,9 +125,12 @@ jobs:
 
               if not focus_and_find_game(driver):
                   print("❌ Failed to find game iframe. Exiting.", flush=True)
-                  driver.save_screenshot("error_no_iframe.png")
                   driver.quit()
                   return
+
+              print("🖱️ Waking up the game frame...", flush=True)
+              wake_up_crazygames(driver)
+              time.sleep(1)
               
               if is_test_mode:
                   print("\n🧪 PHASE 1: 5-Minute Proof Run Started!", flush=True)
@@ -142,6 +144,7 @@ jobs:
               
               try:
                   while True:
+                      # Check if time is up
                       if time.time() - start_time > run_duration:
                           if is_test_mode:
                               print("\n📸 Time is up! Taking proof screenshot...", flush=True)
@@ -149,25 +152,33 @@ jobs:
                               driver.save_screenshot("proof_gameplay.png")
                           break
 
+                      # --- YOUR EXACT GAME LOGIC ---
+                      if is_button_visible(driver, "btn-infinite"):
+                          print("⏳ Main menu detected! Waiting 1.5 seconds...", flush=True)
+                          time.sleep(1.5)
+                          click_html_button(driver, "btn-infinite")
+                          print("🎮 Clicked: Survival Mode!", flush=True)
+                          time.sleep(1)
+                          
+                      elif is_button_visible(driver, "next-level-btn"):
+                          print("⏳ Level Ended! Waiting 2 seconds...", flush=True)
+                          time.sleep(2.0)
+                          click_html_button(driver, "next-level-btn")
+                          print("⏭️ Clicked: Next Level / Continue!", flush=True)
+                          time.sleep(1)
+                          
+                      else:
+                          spam_virtual_clicks(driver)
+                      # -----------------------------
+
+                      time.sleep(0.1)
                       loop_count += 1
                       
-                      # 1. First, check if there are any menus open and click them
-                      menu_status = handle_html_menus(driver)
-                      
-                      if menu_status != 'NO_MENU' and menu_status != 'ERROR':
-                          print(f"🕹️ UI Interacted: {menu_status}", flush=True)
-                          time.sleep(1.5) # Give the game a second to transition after clicking a menu
-                      else:
-                          # 2. If no menus are open, spam the game board!
-                          spam_game_inputs(driver)
-                      
-                      # Print live update every ~30 seconds
-                      if loop_count % 150 == 0:
+                      # Print live update so you know it hasn't frozen
+                      if loop_count % 50 == 0:
                           mins_running = round((time.time() - start_time) / 60, 1)
-                          print(f"🔄 Bot is playing... ({mins_running} minutes elapsed | {loop_count} inputs sent)", flush=True)
-
-                      time.sleep(0.2)
-                      
+                          print(f"🔄 Bot active... ({mins_running} minutes elapsed)", flush=True)
+                          
               except Exception as e:
                   print(f"\n❌ Error: {e}", flush=True)
                   driver.switch_to.default_content()

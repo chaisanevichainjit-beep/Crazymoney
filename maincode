@@ -21,112 +21,155 @@ jobs:
         run: |
           cat << 'EOF' > bot.py
           import time
-          import random
           import sys
+          import random
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
-          from selenium.webdriver.common.keys import Keys
-          from selenium.webdriver.common.action_chains import ActionChains
 
           def setup_driver():
               options = Options()
-              options.add_argument("--headless=new")
-              options.add_argument("--window-size=1920,1080")
-              options.add_argument("--no-sandbox")
-              options.add_argument("--disable-dev-shm-usage")
+              options.add_argument("--headless=new") # Required for GitHub Actions
+              options.add_argument("--window-size=1280,720")
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
+              options.add_argument("--no-sandbox") # Required for Linux Runner
+              options.add_argument("--disable-dev-shm-usage") # Required for Linux Runner
+              
+              print("🚀 Launching Google Chrome...", flush=True)
               return webdriver.Chrome(options=options)
 
           def find_game_frame(driver):
               """Locates the iframe containing the actual game on CrazyGames."""
               try:
-                  # CrazyGames usually wraps the game in an iframe with ID 'game-iframe'
                   frame = driver.find_element(By.ID, "game-iframe")
                   driver.switch_to.frame(frame)
-                  
-                  # Sometimes there is a nested iframe inside the first one
                   nested_iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   if len(nested_iframes) > 0:
                       driver.switch_to.frame(nested_iframes[0])
-                      
                   print("✅ Successfully connected to the Game Canvas!", flush=True)
                   return True
-              except Exception as e:
-                  print("⚠️ Standard frame not found, attempting fallback search...", flush=True)
+              except Exception:
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
-                      # Look for a reasonably sized iframe (ignores tiny ad frames)
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
                           driver.switch_to.frame(frame)
-                          print(f"✅ Switched to large fallback iframe ({i})", flush=True)
+                          print(f"✅ Switched to fallback iframe ({i})", flush=True)
                           return True
               return False
 
-          def click_center(driver):
-              """Clicks the center of the game canvas to clear menus/next level buttons."""
+          def is_button_visible(driver, button_id):
+              """Checks if an HTML button exists and is currently visible on the screen."""
+              script = f"""
+              var btn = document.getElementById('{button_id}');
+              return (btn && btn.offsetParent !== null && !btn.closest('.hidden'));
+              """
               try:
-                  canvas = driver.find_element(By.TAG_NAME, 'canvas')
-                  ActionChains(driver).move_to_element(canvas).click().perform()
+                  return driver.execute_script(script)
               except:
-                  # If canvas not found, click center of current frame
-                  try:
-                      body = driver.find_element(By.TAG_NAME, 'body')
-                      ActionChains(driver).move_to_element(body).click().perform()
-                  except:
-                      pass
+                  return False
+
+          def click_html_button(driver, button_id):
+              """Executes a click on the specified HTML button."""
+              script = f"document.getElementById('{button_id}').click();"
+              try:
+                  driver.execute_script(script)
+              except:
+                  pass
+
+          def spam_virtual_clicks(driver):
+              """Injects JavaScript to rapidly simulate real mouse clicks on the canvas."""
+              script = """
+              var canvas = document.querySelector('canvas');
+              if (canvas && canvas.offsetParent !== null) {
+                  var rect = canvas.getBoundingClientRect();
+                  // Send 10 random clicks across the game board instantly
+                  for (let i = 0; i < 10; i++) {
+                      var x = Math.random() * rect.width;
+                      var y = Math.random() * rect.height;
+                      var ev = new PointerEvent('pointerdown', {
+                          clientX: rect.left + x,
+                          clientY: rect.top + y,
+                          bubbles: true,
+                          cancelable: true
+                      });
+                      canvas.dispatchEvent(ev);
+                  }
+              }
+              """
+              try:
+                  driver.execute_script(script)
+              except:
+                  pass
+
+          def wake_up_crazygames(driver):
+              """Sometimes CrazyGames has an invisible overlay that needs one real click."""
+              try:
+                  body = driver.find_element(By.TAG_NAME, 'body')
+                  webdriver.ActionChains(driver).move_to_element(body).click().perform()
+              except:
+                  pass
 
           def main():
               driver = setup_driver()
               print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
-              
-              # Target URL for Slide Rush
               driver.get("https://www.crazygames.com/game/slide-rush?bypassCache=4482f")
               
-              # Give the site generous time to load ads and iframes
-              time.sleep(15)
-              driver.save_screenshot("screenshot_01_loaded.png")
-              print("📸 Saved site loaded screenshot.", flush=True)
+              print("⏳ Waiting 10 seconds for site to load...", flush=True)
+              time.sleep(10)
+              driver.save_screenshot("01_site_loaded.png") # Proof image
 
               if not find_game_frame(driver):
                   print("❌ Failed to find game iframe. Exiting.", flush=True)
                   driver.quit()
                   return
 
-              time.sleep(5)
+              print("🖱️ Waking up the game frame...", flush=True)
+              wake_up_crazygames(driver)
+              time.sleep(1)
               
-              # Attempt to click to focus the game and start
-              click_center(driver)
-              time.sleep(2)
-              ActionChains(driver).send_keys(Keys.SPACE).perform()
+              print("\n🤖 BOT ACTIVE: Auto-playing has started!", flush=True)
+              print("🎯 Target Mode: Survival Mode (Always)\n", flush=True)
               
-              driver.save_screenshot("screenshot_02_playing.png")
-              print("📸 Saved active gameplay screenshot.", flush=True)
+              loop_counter = 0
+              try:
+                  while True:
+                      # 1. Main Menu check
+                      if is_button_visible(driver, "btn-infinite"):
+                          print("⏳ Main menu detected! Waiting 1.5 seconds to look human...", flush=True)
+                          time.sleep(1.5)
+                          click_html_button(driver, "btn-infinite")
+                          print("🎮 Clicked: Survival Mode!", flush=True)
+                          time.sleep(1) # Let the game load
+                          driver.save_screenshot("02_gameplay_started.png")
 
-              print("🤖 Bot Active. Starting auto-slider...", flush=True)
-              
-              actions = ActionChains(driver)
-              directions = [Keys.ARROW_UP, Keys.ARROW_DOWN, Keys.ARROW_LEFT, Keys.ARROW_RIGHT]
-              
-              loop_count = 0
+                      # 2. Next Level / Game Over check
+                      elif is_button_visible(driver, "next-level-btn"):
+                          print("⏳ Level Ended! Waiting 2 seconds to look human...", flush=True)
+                          time.sleep(2.0)
+                          click_html_button(driver, "next-level-btn")
+                          print("⏭️ Clicked: Next Level / Continue!", flush=True)
+                          time.sleep(1) # Let the next level load
 
-              # Infinite gameplay loop
-              while True:
-                  # Randomly slide in a direction to play the game
-                  move = random.choice(directions)
-                  actions.send_keys(move).perform()
-                  
-                  loop_count += 1
-                  
-                  # Every ~50 moves, try to click the screen to bypass "Next Level" / "Game Over" menus
-                  if loop_count % 50 == 0:
-                      print(f"🔄 Made {loop_count} slides. Clicking center to clear popups...", flush=True)
-                      click_center(driver)
-                      actions.send_keys(Keys.SPACE).perform() # Alternative menu progression
+                      # 3. If no menus are open, play the game!
+                      else:
+                          spam_virtual_clicks(driver)
 
-                  # Wait a fraction of a second before sliding again (adjust if game requires faster/slower inputs)
-                  time.sleep(0.3)
+                      # Wait a fraction of a second before looping
+                      time.sleep(0.1)
+                      
+                      loop_counter += 1
+                      # Take a screenshot every ~30 seconds of gameplay to prove it's still running
+                      if loop_counter % 300 == 0:
+                          driver.save_screenshot("03_active_gameplay_proof.png")
+                      
+              except KeyboardInterrupt:
+                  print("\n🛑 Bot stopped manually. Closing browser...", flush=True)
+                  driver.quit()
+                  sys.exit()
+              except Exception as e:
+                  print(f"\n❌ An error occurred: {e}", flush=True)
+                  driver.quit()
 
           if __name__ == "__main__":
               main()
@@ -138,7 +181,7 @@ jobs:
           nohup python bot.py > bot.log 2>&1 &
 
       - name: ⏱️ Wait for Bot Initialization
-        # Allow 45 seconds for the bot to load the site, traverse the iframes, and take pictures
+        # Allow 45 seconds for the bot to load the site, navigate menus, and take pictures
         run: sleep 45
 
       - name: 📸 Upload Proof Screenshots & Logs

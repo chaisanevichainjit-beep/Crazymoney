@@ -1,12 +1,12 @@
-name: 🚀 CrazyGames 6-Hour Bot
+name: 🚀 CrazyGames Bot (5-Min Proof + 6-Hour Run)
 
 on:
-  workflow_dispatch: # Manually trigger from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # Forces the job to run up to the 6-hour GitHub limit
+    timeout-minutes: 360 # Forces the max 6 hour runtime
     
     steps:
       - name: 🐍 Set up Python
@@ -37,8 +37,6 @@ jobs:
               options.add_argument("--disable-blink-features=AutomationControlled")
               options.add_argument("--no-sandbox")
               options.add_argument("--disable-dev-shm-usage")
-              
-              print("🚀 Launching Google Chrome...", flush=True)
               return webdriver.Chrome(options=options)
 
           def find_game_frame(driver):
@@ -50,7 +48,7 @@ jobs:
                       driver.switch_to.frame(nested_iframes[0])
                   print("✅ Successfully connected to the Game Canvas!", flush=True)
                   return True
-              except Exception:
+              except:
                   iframes = driver.find_elements(By.TAG_NAME, "iframe")
                   for i, frame in enumerate(iframes):
                       if frame.size['width'] > 300 and frame.size['height'] > 300:
@@ -59,48 +57,23 @@ jobs:
                           return True
               return False
 
-          def is_button_visible(driver, button_id):
-              script = f"""
-              var btn = document.getElementById('{button_id}');
-              return (btn && btn.offsetParent !== null && !btn.closest('.hidden'));
-              """
-              try:
-                  return driver.execute_script(script)
-              except:
-                  return False
-
-          def click_html_button(driver, button_id):
-              script = f"document.getElementById('{button_id}').click();"
-              try:
-                  driver.execute_script(script)
-              except:
-                  pass
-
-          def spam_virtual_clicks_and_keys(driver):
-              """Sends proper clicks (Down AND Up) and arrow keys to ensure the game is played."""
-              # 1. Javascript Canvas Clicks
+          def spam_game_inputs(driver):
               script = """
               var canvas = document.querySelector('canvas');
               if (canvas && canvas.offsetParent !== null) {
                   var rect = canvas.getBoundingClientRect();
-                  // Send random clicks across the game board
-                  for (let i = 0; i < 3; i++) {
-                      var x = rect.left + (Math.random() * rect.width);
-                      var y = rect.top + (Math.random() * rect.height);
-                      
-                      // MUST have both down and up for WebGL to register a click
-                      var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
-                      var up = new PointerEvent('pointerup', {clientX: x, clientY: y, bubbles: true});
-                      
-                      canvas.dispatchEvent(down);
-                      canvas.dispatchEvent(up);
-                  }
+                  var x = rect.left + (Math.random() * rect.width);
+                  var y = rect.top + (Math.random() * rect.height);
+                  
+                  var down = new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true});
+                  var up = new PointerEvent('pointerup', {clientX: x, clientY: y, bubbles: true});
+                  
+                  canvas.dispatchEvent(down);
+                  canvas.dispatchEvent(up);
               }
               """
               try:
                   driver.execute_script(script)
-                  
-                  # 2. Also send Arrow Keys & Spacebar (Most common for Slide Rush)
                   actions = ActionChains(driver)
                   directions = [Keys.ARROW_UP, Keys.ARROW_DOWN, Keys.ARROW_LEFT, Keys.ARROW_RIGHT, Keys.SPACE]
                   actions.send_keys(random.choice(directions)).perform()
@@ -109,18 +82,18 @@ jobs:
 
           def wake_up_crazygames(driver):
               try:
-                  # Click dead center of the screen to focus the canvas
                   canvas = driver.find_element(By.TAG_NAME, 'canvas')
                   ActionChains(driver).move_to_element(canvas).click().perform()
               except:
-                  try:
-                      body = driver.find_element(By.TAG_NAME, 'body')
-                      ActionChains(driver).move_to_element(body).click().perform()
-                  except:
-                      pass
+                  pass
 
           def main():
+              # Check if we are running the 5-minute test or the infinite run
+              is_test_mode = "--test" in sys.argv
+              
+              print("🚀 Launching Google Chrome...", flush=True)
               driver = setup_driver()
+              
               print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
               driver.get("https://www.crazygames.com/game/slide-rush?bypassCache=4482f")
               
@@ -129,59 +102,63 @@ jobs:
 
               if not find_game_frame(driver):
                   print("❌ Failed to find game iframe. Exiting.", flush=True)
+                  driver.save_screenshot("error_no_iframe.png")
                   driver.quit()
                   return
 
-              print("🖱️ Waking up the game frame...", flush=True)
+              print("🖱️ Clicking canvas to start game...", flush=True)
               wake_up_crazygames(driver)
               time.sleep(2)
               
-              print("\n🤖 BOT ACTIVE: Auto-playing has started!", flush=True)
-              print("⏱️ The bot will now run continuously for up to 6 hours.\n", flush=True)
+              if is_test_mode:
+                  print("\n🧪 PHASE 1: 5-Minute Proof Run Started!", flush=True)
+                  run_duration = 300 # 5 minutes
+              else:
+                  print("\n♾️ PHASE 2: 6-Hour Infinite Run Started!", flush=True)
+                  run_duration = 21600 # 6 hours
               
+              start_time = time.time()
               loop_count = 0
+              
               try:
-                  # Infinite Loop - Keeps the GitHub Action alive for 6 hours
                   while True:
+                      # Check if time is up
+                      if time.time() - start_time > run_duration:
+                          if is_test_mode:
+                              print("\n📸 Time is up! Taking proof screenshot...", flush=True)
+                              driver.save_screenshot("proof_gameplay.png")
+                          break
+
                       loop_count += 1
+                      spam_game_inputs(driver)
                       
-                      # Occasional status update so you know it hasn't frozen
-                      if loop_count % 300 == 0:
-                          print(f"🔄 Bot is still running... ({loop_count} loops completed)", flush=True)
+                      # Print live update every ~30 seconds so you can watch it run
+                      if loop_count % 150 == 0:
+                          mins_running = round((time.time() - start_time) / 60, 1)
+                          print(f"🔄 Bot is playing... ({mins_running} minutes elapsed | {loop_count} inputs sent)", flush=True)
+                          wake_up_crazygames(driver) # Prevent idle timeout
 
-                      # 1. Check for HTML menus (Just in case the game uses them)
-                      if is_button_visible(driver, "btn-infinite"):
-                          print("⏳ Main menu detected! Clicking Survival Mode.", flush=True)
-                          click_html_button(driver, "btn-infinite")
-                          wake_up_crazygames(driver) # Re-focus canvas
-                          time.sleep(2)
-
-                      elif is_button_visible(driver, "next-level-btn"):
-                          print("⏭️ Level Ended! Clicking Next Level.", flush=True)
-                          click_html_button(driver, "next-level-btn")
-                          wake_up_crazygames(driver) # Re-focus canvas
-                          time.sleep(2)
-
-                      # 2. Play the game! (Clicks + Keys)
-                      else:
-                          spam_virtual_clicks_and_keys(driver)
-                          
-                          # Periodically click the center to clear hidden "Next Level" WebGL menus
-                          if loop_count % 50 == 0:
-                              wake_up_crazygames(driver)
-
-                      # Delay so we don't crash the browser
                       time.sleep(0.2)
                       
               except Exception as e:
-                  print(f"\n❌ An error occurred: {e}", flush=True)
+                  print(f"\n❌ Error: {e}", flush=True)
+                  driver.save_screenshot("error_crash.png")
+              finally:
                   driver.quit()
 
           if __name__ == "__main__":
               main()
           EOF
 
-      - name: 🤖 Run Bot (Live Output)
-        # Because we run this directly (no nohup), the GitHub Action step will 
-        # stay open, running your loop, and printing live logs for the full 6 hours.
-        run: python bot.py
+      - name: 🧪 PHASE 1 - Run for 5 Minutes & Take Screenshot
+        run: python bot.py --test
+
+      - name: 📸 Upload Screenshot Proof to GitHub
+        uses: actions/upload-artifact@v4
+        if: always() # Ensures it uploads even if the script crashes
+        with:
+          name: Proof-Screenshot
+          path: "*.png"
+
+      - name: ♾️ PHASE 2 - Run for the remaining 6 Hours
+        run: python bot.py --infinite

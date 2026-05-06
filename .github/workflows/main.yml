@@ -1,4 +1,4 @@
-name: 🚀 CrazyGames Bot (5-Min Proof + 6-Hour Run)
+name: 🚀 Dashers.io Bot (5-Min Proof + 6-Hour Run)
 
 on:
   workflow_dispatch:
@@ -64,10 +64,11 @@ jobs:
                           return True
               return False
 
-          # === FROM YOUR LOCAL CODE ===
+          # === DASHERS.IO SPECIFIC LOGIC ===
           def is_button_visible(driver, button_id):
               script = f"""
               var btn = document.getElementById('{button_id}');
+              // Checks if button exists, is rendered, and its parent overlay is NOT hidden
               return (btn && btn.offsetParent !== null && !btn.closest('.hidden'));
               """
               try:
@@ -82,22 +83,32 @@ jobs:
               except:
                   pass
 
-          def spam_virtual_clicks(driver):
+          def simulate_gameplay(driver):
+              """Simulates cursor movement to steer the ship and randomly dashes."""
               script = """
-              var canvas = document.querySelector('canvas');
-              if (canvas && canvas.offsetParent !== null) {
-                  var rect = canvas.getBoundingClientRect();
-                  for (let i = 0; i < 10; i++) {
-                      var x = Math.random() * rect.width;
-                      var y = Math.random() * rect.height;
-                      var ev = new PointerEvent('pointerdown', {
-                          clientX: rect.left + x,
-                          clientY: rect.top + y,
-                          bubbles: true,
-                          cancelable: true
-                      });
-                      canvas.dispatchEvent(ev);
-                  }
+              // 1. Simulate mouse movement to steer the ship randomly
+              var w = window.innerWidth;
+              var h = window.innerHeight;
+              var x = Math.random() * w;
+              var y = Math.random() * h;
+              
+              var mouseEv = new MouseEvent('mousemove', {
+                  clientX: x,
+                  clientY: y,
+                  bubbles: true,
+                  cancelable: true
+              });
+              window.dispatchEvent(mouseEv);
+
+              // 2. 10% chance to press 'Space' to activate Engine Dash
+              if (Math.random() < 0.10) {
+                  var spaceEv = new KeyboardEvent('keydown', {
+                      code: 'Space',
+                      key: ' ',
+                      bubbles: true,
+                      cancelable: true
+                  });
+                  window.dispatchEvent(spaceEv);
               }
               """
               try:
@@ -117,10 +128,13 @@ jobs:
               is_test_mode = "--test" in sys.argv
               driver = setup_driver()
               
-              print("⏳ Loading CrazyGames: Slide Rush...", flush=True)
-              driver.get("https://www.crazygames.com/game/slide-rush?bypassCache=4482f")
+              # 👇 EXACT URL PROVIDED BY YOU 👇
+              game_url = "https://www.crazygames.com/game/dashers-io-jwo?bypassCache=y4zh3"
               
-              print("⏳ Waiting 15 seconds for site to load...", flush=True)
+              print(f"⏳ Loading CrazyGames: {game_url}", flush=True)
+              driver.get(game_url)
+              
+              print("⏳ Waiting 15 seconds for site & engine to load...", flush=True)
               time.sleep(15)
 
               if not focus_and_find_game(driver):
@@ -152,24 +166,31 @@ jobs:
                               driver.save_screenshot("proof_gameplay.png")
                           break
 
-                      # --- YOUR EXACT GAME LOGIC ---
-                      if is_button_visible(driver, "btn-infinite"):
+                      # --- DASHERS.IO STATE MACHINE ---
+                      if is_button_visible(driver, "start-btn"):
                           print("⏳ Main menu detected! Waiting 1.5 seconds...", flush=True)
                           time.sleep(1.5)
-                          click_html_button(driver, "btn-infinite")
-                          print("🎮 Clicked: Survival Mode!", flush=True)
+                          click_html_button(driver, "start-btn")
+                          print("🚀 Clicked: Engage Engine!", flush=True)
                           time.sleep(1)
                           
-                      elif is_button_visible(driver, "next-level-btn"):
-                          print("⏳ Level Ended! Waiting 2 seconds...", flush=True)
+                      elif is_button_visible(driver, "restart-btn"):
+                          print("💀 Terminated! Waiting 2 seconds...", flush=True)
                           time.sleep(2.0)
-                          click_html_button(driver, "next-level-btn")
-                          print("⏭️ Clicked: Next Level / Continue!", flush=True)
+                          click_html_button(driver, "restart-btn")
+                          print("🔄 Clicked: Respawn!", flush=True)
+                          time.sleep(1)
+
+                      elif is_button_visible(driver, "resume-btn"):
+                          print("⏸️ Game Paused! Resuming...", flush=True)
+                          time.sleep(1.0)
+                          click_html_button(driver, "resume-btn")
                           time.sleep(1)
                           
                       else:
-                          spam_virtual_clicks(driver)
-                      # -----------------------------
+                          # In-game state -> Send mouse steering + dash inputs
+                          simulate_gameplay(driver)
+                      # ---------------------------------
 
                       time.sleep(0.1)
                       loop_count += 1
@@ -177,7 +198,7 @@ jobs:
                       # Print live update so you know it hasn't frozen
                       if loop_count % 50 == 0:
                           mins_running = round((time.time() - start_time) / 60, 1)
-                          print(f"🔄 Bot active... ({mins_running} minutes elapsed)", flush=True)
+                          print(f"⚡ Bot navigating arena... ({mins_running} minutes elapsed)", flush=True)
                           
               except Exception as e:
                   print(f"\n❌ Error: {e}", flush=True)

@@ -1,4 +1,4 @@
-name: 🚀 Dashers.io Bot (5-Min Proof + 6-Hour Run)
+name: 🚀 Dashers.io AI Bot (5-Min Proof + 6-Hour Run)
 
 on:
   workflow_dispatch:
@@ -22,7 +22,6 @@ jobs:
           cat << 'EOF' > bot.py
           import time
           import sys
-          import random
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
           from selenium.webdriver.common.by import By
@@ -33,7 +32,6 @@ jobs:
               options.add_argument("--window-size=1920,1080") # High-res so screenshots look good
               options.add_argument("--mute-audio")
               options.add_argument("--disable-blink-features=AutomationControlled")
-              # These two are required for Linux servers:
               options.add_argument("--no-sandbox")
               options.add_argument("--disable-dev-shm-usage")
               
@@ -41,7 +39,7 @@ jobs:
               return webdriver.Chrome(options=options)
 
           def focus_and_find_game(driver):
-              """Locates the game frame and scrolls down to it so screenshots work properly."""
+              """Locates the CrazyGames iframe and switches contexts into the game itself."""
               driver.switch_to.default_content()
               try:
                   frame = driver.find_element(By.ID, "game-iframe")
@@ -60,15 +58,16 @@ jobs:
                           driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", frame)
                           time.sleep(1)
                           driver.switch_to.frame(frame)
+                          nested = driver.find_elements(By.TAG_NAME, "iframe")
+                          if len(nested) > 0:
+                              driver.switch_to.frame(nested[0])
                           print(f"✅ Switched to fallback iframe ({i})", flush=True)
                           return True
               return False
 
-          # === DASHERS.IO SPECIFIC LOGIC ===
           def is_button_visible(driver, button_id):
               script = f"""
               var btn = document.getElementById('{button_id}');
-              // Checks if button exists, is rendered, and its parent overlay is NOT hidden
               return (btn && btn.offsetParent !== null && !btn.closest('.hidden'));
               """
               try:
@@ -84,32 +83,107 @@ jobs:
                   pass
 
           def simulate_gameplay(driver):
-              """Simulates cursor movement to steer the ship and randomly dashes."""
+              """Injects a full Javascript AI that reads the actual game state and plays intelligently."""
               script = """
-              // 1. Simulate mouse movement to steer the ship randomly
-              var w = window.innerWidth;
-              var h = window.innerHeight;
-              var x = Math.random() * w;
-              var y = Math.random() * h;
-              
-              var mouseEv = new MouseEvent('mousemove', {
-                  clientX: x,
-                  clientY: y,
-                  bubbles: true,
-                  cancelable: true
-              });
-              window.dispatchEvent(mouseEv);
+              try {
+                  if (typeof isPlaying !== 'undefined' && isPlaying && typeof player !== 'undefined' && player && player.health > 0) {
+                      let tx = player.x;
+                      let ty = player.y;
+                      
+                      // Find nearest orb
+                      let cOrb = null, mOrbD = Infinity;
+                      if (typeof modules !== 'undefined') {
+                          for (let i=0; i<modules.length; i++) {
+                              let d = Math.hypot(modules[i].x - player.x, modules[i].y - player.y);
+                              if (d < mOrbD) { mOrbD = d; cOrb = modules[i]; }
+                          }
+                      }
+                      
+                      // Find nearest enemy
+                      let cEn = null, mEnD = Infinity;
+                      if (typeof entities !== 'undefined') {
+                          for (let i=0; i<entities.length; i++) {
+                              let e = entities[i];
+                              if (e === player || e.health <= 0) continue;
+                              let d = Math.hypot(e.x - player.x, e.y - player.y);
+                              if (d < mEnD) { mEnD = d; cEn = e; }
+                          }
+                      }
+                      
+                      // Find nearest obstacle
+                      let cObs = null, mObsD = Infinity;
+                      if (typeof obstacles !== 'undefined') {
+                          for (let i=0; i<obstacles.length; i++) {
+                              let o = obstacles[i];
+                              let d = Math.hypot(o.x - player.x, o.y - player.y);
+                              if (d < mObsD) { mObsD = d; cObs = o; }
+                          }
+                      }
 
-              // 2. 10% chance to press 'Space' to activate Engine Dash
-              if (Math.random() < 0.10) {
-                  var spaceEv = new KeyboardEvent('keydown', {
-                      code: 'Space',
-                      key: ' ',
-                      bubbles: true,
-                      cancelable: true
-                  });
-                  window.dispatchEvent(spaceEv);
-              }
+                      let flee = false;
+                      let target = null;
+                      let dash = false;
+
+                      // Smart Enemy Logic
+                      if (cEn && mEnD < 400) {
+                          if (cEn.level > player.level) { // Run away if they are stronger
+                              flee = true; target = cEn;
+                              if (mEnD < 250) dash = true;
+                          } else if (player.level >= cEn.level && mEnD < 300) { // Hunt if we are stronger
+                              target = cEn;
+                              if (mEnD < 150) dash = true;
+                          }
+                      }
+                      
+                      // Smart Obstacle Logic
+                      if (!flee && !target && cObs && mObsD < 200) {
+                          if (player.level >= cObs.level) { // Break obstacle
+                              target = cObs;
+                          } else { // Avoid lethal obstacle
+                              flee = true; target = cObs;
+                          }
+                      }
+
+                      // Execute AI Movement Rules
+                      if (flee && target) {
+                          tx = player.x + (player.x - target.x);
+                          ty = player.y + (player.y - target.y);
+                      } else if (target) {
+                          tx = target.x;
+                          ty = target.y;
+                      } else if (cOrb) {
+                          tx = cOrb.x;
+                          ty = cOrb.y;
+                      } else {
+                          tx = 1500; ty = 1500; // Drift towards center
+                      }
+                      
+                      // Keep target inside the map bounds (MAP_SIZE is 3000)
+                      tx = Math.max(50, Math.min(2950, tx));
+                      ty = Math.max(50, Math.min(2950, ty));
+                      
+                      // Convert world coordinates to raw screen pixels based on current camera zoom
+                      let sx = (tx - camera.x) * cameraZoom + window.innerWidth / 2;
+                      let sy = (ty - camera.y) * cameraZoom + window.innerHeight / 2;
+                      
+                      // Update Native Game Mouse Location
+                      window.dispatchEvent(new MouseEvent('mousemove', { clientX: sx, clientY: sy, bubbles: true }));
+                      
+                      // Use space to dash if calculated necessary
+                      if (dash) {
+                          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+                      }
+                  } else {
+                      // Idle wander if dead/menu
+                      var w = window.innerWidth;
+                      var h = window.innerHeight;
+                      window.dispatchEvent(new MouseEvent('mousemove', {
+                          clientX: Math.random() * w,
+                          clientY: Math.random() * h,
+                          bubbles: true
+                      }));
+                  }
+              } catch(e) {}
               """
               try:
                   driver.execute_script(script)
@@ -122,13 +196,11 @@ jobs:
                   webdriver.ActionChains(driver).move_to_element(body).click().perform()
               except:
                   pass
-          # ==============================
 
           def main():
               is_test_mode = "--test" in sys.argv
               driver = setup_driver()
               
-              # 👇 EXACT URL PROVIDED BY YOU 👇
               game_url = "https://www.crazygames.com/game/dashers-io-jwo?bypassCache=y4zh3"
               
               print(f"⏳ Loading CrazyGames: {game_url}", flush=True)
@@ -148,17 +220,16 @@ jobs:
               
               if is_test_mode:
                   print("\n🧪 PHASE 1: 5-Minute Proof Run Started!", flush=True)
-                  run_duration = 300 # 5 minutes
+                  run_duration = 300 
               else:
                   print("\n♾️ PHASE 2: 6-Hour Infinite Run Started!", flush=True)
-                  run_duration = 21600 # 6 hours
+                  run_duration = 21600 
               
               start_time = time.time()
               loop_count = 0
               
               try:
                   while True:
-                      # Check if time is up
                       if time.time() - start_time > run_duration:
                           if is_test_mode:
                               print("\n📸 Time is up! Taking proof screenshot...", flush=True)
@@ -166,39 +237,41 @@ jobs:
                               driver.save_screenshot("proof_gameplay.png")
                           break
 
-                      # --- DASHERS.IO STATE MACHINE ---
-                      if is_button_visible(driver, "start-btn"):
+                      # --- GAME STATE MANAGER ---
+                      if is_button_visible(driver, "claim-daily"):
+                          click_html_button(driver, "claim-daily")
+                          time.sleep(1)
+                      elif is_button_visible(driver, "close-daily"):
+                          click_html_button(driver, "close-daily")
+                          time.sleep(1)
+                      elif is_button_visible(driver, "start-btn"):
                           print("⏳ Main menu detected! Waiting 1.5 seconds...", flush=True)
                           time.sleep(1.5)
                           click_html_button(driver, "start-btn")
                           print("🚀 Clicked: Engage Engine!", flush=True)
                           time.sleep(1)
-                          
                       elif is_button_visible(driver, "restart-btn"):
                           print("💀 Terminated! Waiting 2 seconds...", flush=True)
                           time.sleep(2.0)
                           click_html_button(driver, "restart-btn")
                           print("🔄 Clicked: Respawn!", flush=True)
                           time.sleep(1)
-
                       elif is_button_visible(driver, "resume-btn"):
                           print("⏸️ Game Paused! Resuming...", flush=True)
                           time.sleep(1.0)
                           click_html_button(driver, "resume-btn")
                           time.sleep(1)
-                          
                       else:
-                          # In-game state -> Send mouse steering + dash inputs
+                          # Run the AI script dynamically directly in the JS Context
                           simulate_gameplay(driver)
-                      # ---------------------------------
 
-                      time.sleep(0.1)
+                      time.sleep(0.1) # Limits Loop to 10hz to save CPU usage
                       loop_count += 1
                       
                       # Print live update so you know it hasn't frozen
-                      if loop_count % 50 == 0:
+                      if loop_count % 100 == 0:
                           mins_running = round((time.time() - start_time) / 60, 1)
-                          print(f"⚡ Bot navigating arena... ({mins_running} minutes elapsed)", flush=True)
+                          print(f"⚡ AI Bot actively tracking targets & playing... ({mins_running} minutes elapsed)", flush=True)
                           
               except Exception as e:
                   print(f"\n❌ Error: {e}", flush=True)
